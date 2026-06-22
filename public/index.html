@@ -213,6 +213,93 @@ function extractTextFromSse(sseString) {
   return out;
 }
 
+function extractThinkingFromSse(sseString) {
+  let out = '[thinking]: ';
+  for (const line of sseString.split('\n')) {
+    if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+    try {
+      const j = JSON.parse(line.slice(6));
+      // {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}
+      // {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let"}}
+      // {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" me"}}
+      if (j.delta?.thinking) out += j.delta.thinking;
+    } catch {}
+  }
+  return out ;
+}
+
+function extractToolCallsFromSse(sseString) {
+  const toolCalls = [];
+  let currentTool = null;
+  let currentJson = '';
+  let inToolCall = false;
+
+  for (const line of sseString.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+    if (line === 'data: [DONE]') continue;
+
+    try {
+      const jsonStr = line.slice(6);
+      const j = JSON.parse(jsonStr);
+      /*
+      data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call_00_5vd9bdTiLiCWDAWCFTvV0167","name":"Read","input":{}}}
+      data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{"}}
+      data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\""}}
+      data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"file"}}
+      ... more deltas for the JSON input ...
+      data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\""}}
+      data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"}"}}
+      data: {"type":"content_block_stop","index":1}      
+      */
+      // 检查是否是工具调用开始
+      if (j.type === 'content_block_start' && 
+          j.content_block?.type === 'tool_use') {
+        currentTool = {
+          id: j.content_block.id,
+          name: j.content_block.name,
+          params: ''
+        };
+        currentJson = '';
+        inToolCall = true;
+      }
+
+      // 检查是否是工具调用的增量数据
+      if (j.type === 'content_block_delta' && 
+          j.delta?.type === 'input_json_delta') {
+        if (inToolCall && currentTool) {
+          currentJson += j.delta.partial_json || '';
+        }
+      }
+
+      // 检查是否是工具调用结束
+      if (j.type === 'content_block_stop' && inToolCall && currentTool) {
+        // 尝试解析完整的JSON参数
+        try {
+          const params = JSON.parse(currentJson);
+          currentTool.params = JSON.stringify(params);
+        } catch (e) {
+          // 如果解析失败，使用原始字符串
+          currentTool.params = currentJson;
+        }
+        
+        toolCalls.push(currentTool);
+        currentTool = null;
+        currentJson = '';
+        inToolCall = false;
+      }
+
+    } catch (e) {
+      // 忽略解析错误
+    }
+  }
+
+  // 输出结果：每个工具一行
+  const tools = toolCalls.map(tool => 
+    `ID: ${tool.id}, Name: ${tool.name}, Params: ${tool.params}`
+  ).join('\n');
+  return '[tool_use]: ' + (tools || 'none') + '\n';
+}
+
 function extractText(chunk) {
   let out = '';
   for (const line of chunk.split('\n')) {
@@ -491,12 +578,14 @@ function populateJsonTrees(r) {
   if (!isLive && r.status !== 'error') {
     const streamText = getStreamedText(r);
     const outputText = r.response ? extractOutputText(r.response) : '';
+    const sseThinking = (typeof r.response === 'string' && isSse(r.response)) ? extractThinkingFromSse(r.response) : '';
+    const sseToolCalls = (typeof r.response === 'string' && isSse(r.response)) ? extractToolCallsFromSse(r.response) : '';
     const sseText = (!streamText && !outputText && typeof r.response === 'string' && isSse(r.response)) ? extractTextFromSse(r.response) : '';
     const displayText = streamText || outputText || sseText;
 
     // text summary at top
-    if (summaryEl && displayText) {
-      summaryEl.innerHTML = `<pre style="margin-bottom:12px;border-color:#2a4a2a;background:#0a1a0a;color:#b0d0b0;white-space:pre-wrap;word-break:break-word">${esc(displayText)}</pre>`;
+    if (summaryEl) {
+      summaryEl.innerHTML = `<pre style="margin-bottom:12px;border-color:#2a4a2a;background:#0a1a0a;color:#b0d0b0;white-space:pre-wrap;word-break:break-word">${esc(sseThinking)}<p/>${esc(displayText)}<p/>${esc(sseToolCalls)}</pre>`;
     }
 
     // JSON tree below

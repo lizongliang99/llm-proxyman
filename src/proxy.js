@@ -126,10 +126,13 @@ function createProxyMiddleware(overrideUrlOrOpts) {
       const forwardHeaders = { ...req.headers };
       delete forwardHeaders['x-mitm-host']; // internal — must not leak to upstream
 
+      const basePath = upstream.pathname.replace(/\/+$/, '');  // '/anthropic' → '/anthropic'，'/' → ''
+      const fullPath = (basePath || '') + req.url;              // '/anthropic' + '/v1/chat/completions'
+
       const options = {
         hostname: upstream.hostname,
         port: upstream.port || (isHttps ? 443 : 80),
-        path: req.url,
+        path: fullPath,
         method: req.method,
         headers: {
           ...forwardHeaders,

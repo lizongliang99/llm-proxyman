@@ -147,12 +147,39 @@ function createConnectHandler(port) {
     // Non-443: blind TCP tunnel (can't inspect, but don't break it)
     if (targetPort !== 443) {
       const tunnel = net.connect(targetPort, hostname);
-      tunnel.on('error', () => clientSocket.destroy());
+      // 设置超时，30秒无数据自动断开
+      tunnel.setTimeout(30000);
+
+      // 隧道出错，销毁客户端socket和隧道socket
+      tunnel.on('error', (err) => {
+        console.log(`TLS tunnel error: ${err.message}`);
+        clientSocket.destroy();
+        tunnel.destroy();
+      });
+      tunnel.on('timeout', (err) => {
+        console.log(`TLS tunnel timeout: ${err.message}`);
+        clientSocket.destroy();
+        tunnel.destroy();
+      });
+
+      // 客户端提前关闭，销毁隧道
+      clientSocket.once('error', (err) => {
+        console.log(`Client socket error: ${err.message}`);
+        tunnel.destroy();
+        clientSocket.destroy();
+      });
+      clientSocket.on('timeout', (err) => {
+        console.log(`Client tunnel timeout: ${err.message}`);
+        clientSocket.destroy();
+        tunnel.destroy();
+      });
+
       tunnel.on('connect', () => {
         clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
         if (head && head.length) tunnel.write(head);
-        tunnel.pipe(clientSocket);
-        clientSocket.pipe(tunnel);
+        // 双向管道，关闭时互相销毁
+        tunnel.pipe(clientSocket).on('close', () => clientSocket.destroy());
+        clientSocket.pipe(tunnel).on('close', () => tunnel.destroy());
       });
       return;
     }

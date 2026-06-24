@@ -139,6 +139,14 @@ const server = app.listen(PORT, () => {
   if (process.env.PERSIST !== 'false') {
     console.log(`Persistence: ${process.env.DB_PATH || './proxy-history.db'}`);
   }
+
+  // 自动打开浏览器
+  if (process.env.NO_BROWSER !== 'true') {
+    const url = `http://localhost:${PORT}`;
+    exec(process.platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`, (err) => {
+      if (err) console.log(`[INFO] 无法自动打开浏览器，请手动访问 ${url}`);
+    });
+  }
 });
 
 // HTTPS MITM — intercept CONNECT tunnels (e.g. from Codex via HTTPS_PROXY)

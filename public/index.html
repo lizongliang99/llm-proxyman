@@ -233,7 +233,38 @@ function extractThinkingFromSse(sseString) {
   return out ;
 }
 
-function extractToolCallsFromSse(sseString) {
+/**
+ * 解析SSE data行，判断是 OpenAI 还是 Anthropic stream chunk
+ * @param {string} sseString - 原始SSE行，如 `data: {"object":"chat.completion.chunk",...}`
+ * @returns {'openai'|'anthropic'|'unknown'|null} null=非data行(如[DONE])
+ */
+function detectSseChunkFormat(sseString) {
+  for (const line of sseString.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+    if (line === 'data: [DONE]') continue;
+
+    try {
+      const jsonStr = line.slice(6);
+      const payload = JSON.parse(jsonStr);
+
+      // OpenAI 特征：顶层 object = chat.completion.chunk && choices 数组
+      if (payload.object === 'chat.completion.chunk' && Array.isArray(payload.choices)) {
+          return 'openai';
+      }
+
+      // Anthropic 特征：顶层 type 字段，没有 object=chat.completion.chunk
+      if (typeof payload.type === 'string') {
+          return 'anthropic';
+      }
+
+    } catch (e) {
+      // 忽略解析错误
+    }
+    return "unknown"
+  }
+}
+
+function extractAnthropicToolCallsFromSse(sseString) {
   const toolCalls = [];
   let currentTool = null;
   let currentJson = '';
@@ -304,6 +335,82 @@ function extractToolCallsFromSse(sseString) {
   ).join('\n');
   return '[tool_use]: ' + (tools || 'none') + '\n';
 }
+
+function extractOpenAIToolCallsFromSse(sseString) {
+  // 缓存工具调用，key为tool_call index
+  const toolCallMap = new Map();
+
+  for (const line of sseString.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+    if (line === 'data: [DONE]') continue;
+
+    try {
+      const jsonStr = line.slice(6);
+      const chunk = JSON.parse(jsonStr);
+      /*
+      data: {"id":"chatcmpl-b","object":"chat.completion.chunk","created":1785986278,"model":"mlx/gemma-4","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_aa6a7c62","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"\\u5317\\u4eac\"}"}}]},"finish_reason":null}],"usage":null}
+
+      data: {"id":"chatcmpl-b","object":"chat.completion.chunk","created":1785986278,"model":"mlx/gemma-4","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":215,"completion_tokens":112,"total_tokens":327}}      
+      */
+      const choices = chunk?.choices;
+      if (!Array.isArray(choices) || choices.length === 0) continue;
+      const delta = choices[0]?.delta;
+      if (!delta) continue;
+
+      const deltaToolCalls = delta.tool_calls;
+      if (!Array.isArray(deltaToolCalls)) continue;
+
+      for (const deltaTc of deltaToolCalls) {
+          const tcIndex = deltaTc.index;
+          if (!toolCallMap.has(tcIndex)) {
+              // 初始化工具调用对象
+              toolCallMap.set(tcIndex, {
+                  id: deltaTc.id ?? '',
+                  type: deltaTc.type ?? 'function',
+                  function: {
+                      name: deltaTc.function?.name ?? '',
+                      arguments: ''
+                  }
+              });
+          }
+          const fullTc = toolCallMap.get(tcIndex);
+          // name只会第一片出现，arguments是分片字符串需要拼接
+          if (deltaTc.function?.name) {
+              fullTc.function.name = deltaTc.function.name;
+          }
+          if (deltaTc.function?.arguments) {
+              fullTc.function.arguments += deltaTc.function.arguments;
+          }
+          if (deltaTc.id) {
+              fullTc.id = deltaTc.id;
+          }
+        }
+      } catch (e) {
+      // 忽略解析错误
+    }
+  }
+
+  // 输出结果：每个工具一行
+  let toolsStr = '';
+  for (const tool of toolCallMap.values()) {
+    toolStr = `ID: ${tool.id}, Name: ${tool.function.name}, Arguments: ${tool.function.arguments} \n`
+    toolsStr += toolStr;
+  }
+  
+  return '[tool_use]: ' + (toolsStr || 'none') + '\n';
+}
+
+function extractToolCallsFromSse(sseString) {
+  format = detectSseChunkFormat(sseString) 
+  if (format === 'anthropic') {
+    return extractAnthropicToolCallsFromSse(sseString);
+  } else if (format === 'openai') {
+    return extractOpenAIToolCallsFromSse(sseString);
+  } else {
+    return '[tool_use]: unknown format\n';
+  }
+}
+
 
 function extractText(chunk) {
   let out = '';

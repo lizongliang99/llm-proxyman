@@ -29,9 +29,6 @@ app.use('/api', express.json(), api);
 // Static web UI
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Proxy /v1/* — standard OpenAI/Anthropic paths
-app.all('/v1/*', createProxyMiddleware());
-
 // Fetch model name from upstream /v1/models
 function fetchLocalModel() {
   return new Promise((resolve, reject) => {
@@ -130,6 +127,10 @@ app.use((req, res, next) => {
   else if (req.url.includes('backend-api')) console.log(`[MITM-ROUTE] ${req.method} ${req.url} silent=${silent}`);
   createProxyMiddleware({ silent })(req, res);
 });
+
+// Catch-all proxy for all remaining non-MITM requests
+// (MITM requests are handled above first)
+app.all('*', createProxyMiddleware());
 
 const server = app.listen(PORT, () => {
   console.log(`Local proxy listening on http://localhost:${PORT}`);

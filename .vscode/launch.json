@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug app by nodejs",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/src/index.js",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"],
+      "env": {
+        "UPSTREAM_URL": "http://127.0.0.1:8000/v1"
+      }
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "UT Current Test File",
+      "skipFiles": ["<node_internals>/**"],
+      "runtimeArgs": [
+        "--test"
+      ],
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "autoAttachChildProcesses": true
+    }
+  ]
+}

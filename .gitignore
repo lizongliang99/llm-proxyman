@@ -144,3 +144,9 @@ vite.config.ts.timestamp-*
 
 # Other
 .worktrees/
+.DS_Store
+.idea/
+
+# 当前项目
+proxy-history.db
+package-lock.json

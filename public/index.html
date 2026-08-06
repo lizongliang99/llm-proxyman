@@ -219,10 +219,15 @@ function extractThinkingFromSse(sseString) {
     if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
     try {
       const j = JSON.parse(line.slice(6));
+      // Anthropic格式
       // {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}
       // {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let"}}
       // {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" me"}}
       if (j.delta?.thinking) out += j.delta.thinking;
+
+      // OpenAI 格式
+      // {"id":"xx","object":"chat.completion.chunk","created":1785986276,"model":"mlx-mxfp8","choices":[{"index":0,"delta":{"reasoning_content":" user"},"finish_reason":null}],"usage":null}
+      if (j.choices?.[0]?.delta?.reasoning_content) out += j.choices[0].delta.reasoning_content;      
     } catch {}
   }
   return out ;

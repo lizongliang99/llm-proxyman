@@ -81,6 +81,18 @@ function resolveUpstreamUrl(model, overrideUrl, mitmHost) {
   return config.upstreamUrl;
 }
 
+// 使用示例
+// const newBody = replaceDeveloperToSystem(requestBody);
+function replaceDeveloperToSystem(requestBody) {
+  if (!requestBody || !Array.isArray(requestBody.messages)) {
+    return ;
+  }
+  const system_role = requestBody.messages[0].role
+  if (system_role === 'developer') {
+    requestBody.messages[0].role = 'system'
+  }
+}
+
 function createProxyMiddleware(overrideUrlOrOpts) {
   const opts = typeof overrideUrlOrOpts === 'object' ? overrideUrlOrOpts : {};
   const overrideUrl = typeof overrideUrlOrOpts === 'string' ? overrideUrlOrOpts : undefined;
@@ -92,12 +104,18 @@ function createProxyMiddleware(overrideUrlOrOpts) {
       const rawBody = Buffer.concat(bodyChunks);
 
       let requestBody = null;
+      let bodyToSend = rawBody;
+      let bodyRewritten = false;
       let model = 'unknown';
       try {
         const reqEncoding = req.headers['content-encoding'];
         const bodyBuf = reqEncoding ? decompress(rawBody, reqEncoding) : rawBody;
         requestBody = JSON.parse(bodyBuf.toString());
+        replaceDeveloperToSystem(requestBody);
         model = requestBody.model || 'unknown';
+        // 修改后重新序列化，作为实际转发给上游的 body
+        bodyToSend = Buffer.from(JSON.stringify(requestBody));
+        bodyRewritten = true;
         if (!silent) console.log(`[PROXY] parsed model=${model} encoding=${reqEncoding} bodyKeys=${Object.keys(requestBody).join(',')}`);
       } catch (e) {
         if (!silent) console.log(`[PROXY] body parse failed: ${e.message} encoding=${req.headers['content-encoding']} rawLen=${rawBody.length}`);
@@ -125,6 +143,7 @@ function createProxyMiddleware(overrideUrlOrOpts) {
       // Build forwarded headers: strip internal proxy headers, fix host + content-length
       const forwardHeaders = { ...req.headers };
       delete forwardHeaders['x-mitm-host']; // internal — must not leak to upstream
+      if (bodyRewritten) delete forwardHeaders['content-encoding']; // body 已重序列化为明文 JSON
 
       const basePath = upstream.pathname.replace(/\/+$/, '');  // '/anthropic' → '/anthropic'，'/' → ''
       // const fullPath = (basePath || '') + req.url;              // '/anthropic' + '/v1/chat/completions'
@@ -144,7 +163,7 @@ function createProxyMiddleware(overrideUrlOrOpts) {
         headers: {
           ...forwardHeaders,
           host: upstream.host,
-          'content-length': rawBody.length,
+          'content-length': bodyToSend.length,
           // Keep original accept-encoding so client can decompress the response itself.
           // We decompress a copy for logging purposes in the 'end' handler below.
         },
@@ -219,7 +238,7 @@ function createProxyMiddleware(overrideUrlOrOpts) {
         }
       });
 
-      upstreamReq.write(rawBody);
+      upstreamReq.write(bodyToSend);
       upstreamReq.end();
     });
   };

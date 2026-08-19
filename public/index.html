@@ -693,11 +693,11 @@ function populateJsonTrees(r) {
     const sseThinking = (typeof r.response === 'string' && isSse(r.response)) ? extractThinkingFromSse(r.response) : '';
     const sseToolCalls = (typeof r.response === 'string' && isSse(r.response)) ? extractToolCallsFromSse(r.response) : '';
     const sseText = (!streamText && !outputText && typeof r.response === 'string' && isSse(r.response)) ? extractTextFromSse(r.response) : '';
-    const displayText = streamText || outputText || sseText;
+    const displayText = "[content]: " + (streamText || outputText || sseText);
 
     // text summary at top
     if (summaryEl) {
-      summaryEl.innerHTML = `<pre style="margin-bottom:12px;border-color:#2a4a2a;background:#0a1a0a;color:#b0d0b0;white-space:pre-wrap;word-break:break-word">${esc(sseThinking)}<p/>${esc(displayText)}<p/>${esc(sseToolCalls)}</pre>`;
+      summaryEl.innerHTML = `<pre style="margin-bottom:12px;border-color:#2a4a2a;background:#0a1a0a;color:#b0d0b0;white-space:pre-wrap;word-break:break-word">${esc(sseThinking)}<p/>${esc(sseToolCalls)}<p/>${esc(displayText)}</pre>`;
     }
 
     // JSON tree below

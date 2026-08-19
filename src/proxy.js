@@ -127,7 +127,14 @@ function createProxyMiddleware(overrideUrlOrOpts) {
       delete forwardHeaders['x-mitm-host']; // internal — must not leak to upstream
 
       const basePath = upstream.pathname.replace(/\/+$/, '');  // '/anthropic' → '/anthropic'，'/' → ''
-      const fullPath = (basePath || '') + req.url;              // '/anthropic' + '/v1/chat/completions'
+      // const fullPath = (basePath || '') + req.url;              // '/anthropic' + '/v1/chat/completions'
+      let fullPath;
+      if (basePath && req.url.startsWith(basePath)) {
+        fullPath = req.url;
+      } else {
+        fullPath = (basePath || '') + req.url;
+      }
+
 
       const options = {
         hostname: upstream.hostname,
